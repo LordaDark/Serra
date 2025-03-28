@@ -1,6 +1,12 @@
 {
   "rules": {
     ".read": true,
-    ".write": true
+    ".write": true,
+    "history": {
+      ".indexOn": "timestamp"
+    },
+    "dati_serra": {
+      ".indexOn": "timestamp"
+    }
   }
 }

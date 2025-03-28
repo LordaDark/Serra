@@ -1,0 +1,166 @@
+.settings-page {
+    padding: 2rem;
+}
+
+.settings-grid {
+    display: grid;
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+.setting-card {
+    background-color: var(--card-background);
+    border-radius: 15px;
+    border: 2px solid var(--border-color);
+    padding: 1.5rem;
+    box-shadow: 0 0 20px var(--shadow-color);
+}
+
+.setting-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.setting-input {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.setting-input label {
+    min-width: 60px;
+}
+
+.setting-input input {
+    flex: 1;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    border: 2px solid var(--border-color);
+    padding: 0.5rem;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.setting-input input:focus {
+    outline: none;
+    box-shadow: 0 0 10px var(--shadow-color);
+    border-color: var(--text-color);
+}
+
+.theme-section {
+    background-color: var(--card-background);
+    border-radius: 15px;
+    border: 2px solid var(--border-color);
+    padding: 1.5rem;
+    box-shadow: 0 0 20px var(--shadow-color);
+}
+
+.theme-controls {
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.theme-btn {
+    background-color: var(--card-background);
+    color: var(--text-color);
+    border: 2px solid var(--border-color);
+    padding: 0.8rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, var(--shadow-color), transparent);
+    transition: left 0.3s ease;
+}
+
+.theme-btn:hover::before {
+    left: 100%;
+}
+
+.theme-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 10px var(--shadow-color);
+}
+
+.theme-btn.active {
+    background-color: var(--border-color);
+    color: var(--card-background);
+}
+
+.reset-btn {
+    background-color: var(--card-background);
+    color: var(--text-color);
+    border: 2px solid var(--border-color);
+    padding: 1rem 2rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    margin-top: 2rem;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    display: block;
+    width: 100%;
+    max-width: 300px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.reset-btn::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, var(--shadow-color), transparent);
+    transition: left 0.3s ease;
+}
+
+.reset-btn:hover::before {
+    left: 100%;
+}
+
+.reset-btn:hover {
+    background-color: var(--border-color);
+    color: var(--card-background);
+    transform: translateY(-2px);
+    box-shadow: 0 2px 10px var(--shadow-color);
+}
+
+@media (max-width: 768px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .setting-input {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .setting-input input {
+        width: 100%;
+    }
+
+    .theme-controls {
+        flex-direction: column;
+    }
+
+    .theme-btn {
+        width: 100%;
+    }
+}
