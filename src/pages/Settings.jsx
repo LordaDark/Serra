@@ -6,7 +6,7 @@ import '../styles/settings.css';
 const Settings = () => {     
   const [settings, setSettings] = useState({
     temperature: { min: 18, max: 60 },
-    humidity: { min: 40, max: 80 },
+    humidity: { min: 0, max: 100 },
     light: { min: 50, max: 90 }
   });
   const [theme, setTheme] = useState('dark');
@@ -62,7 +62,7 @@ const Settings = () => {
   const handleReset = async () => {
     const defaultSettings = {
       temperature: { min: 18, max: 60 },
-      humidity: { min: 40, max: 80 },
+      humidity: { min: 0, max: 100 },
       light: { min: 50, max: 90 }
     };
 

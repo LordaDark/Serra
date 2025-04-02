@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ref, onValue, query, orderByChild, limitToLast, get } from 'firebase/database';
+import { ref, onValue, query, orderByChild, limitToLast, get, set } from 'firebase/database';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { database, firestore } from '../firebase-config';
 import { Line } from 'react-chartjs-2';
@@ -33,13 +33,19 @@ const Dashboard = () => {
   const [notifications, setNotifications] = useState([]);
   const [chartData, setChartData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [chartDataArray, setChartDataArray] = useState([]);
+  const [notificationCount, setNotificationCount] = useState(0);
   const readingsCountRef = useRef(0);
+  const lastNotificationRef = useRef(null);
 
   useEffect(() => {
+    console.log("[Dashboard] Inizializzazione componente...");
+    setIsLoading(true);
     const sensorsRef = ref(database, 'dati_serra');
     const settingsRef = ref(database, 'settings');
     const notificationsRef = ref(database, 'dati_serra');
     const historyRef = ref(database, 'dati_serra');
+    console.log("[Dashboard] Riferimenti database inizializzati");
 
     // Initialize with default values
     const defaultData = {
@@ -48,89 +54,197 @@ const Dashboard = () => {
       light: { value: 75, min: 50, max: 90 }
     };
 
+    console.log("[Dashboard] Impostazione dati predefiniti:", defaultData);
     setSensorData(defaultData);
+    setIsLoading(false);
+    
+    // Verifica se i dati esistono nel database e, se necessario, inizializzali
+    const checkAndInitializeData = async () => {
+      try {
+        const sensorsSnapshot = await get(sensorsRef);
+        if (!sensorsSnapshot.exists()) {
+          console.log("[Dashboard] Nessun dato sensori trovato, inizializzazione...");
+          const exampleSensorData = {
+            temperatura: 25,
+            umidita: 60,
+            luce: 75,
+            timestamp: Date.now()
+          };
+          
+          await set(ref(database, 'dati_serra'), exampleSensorData);
+          console.log("[Dashboard] Dati sensori inizializzati con successo");
+        }
 
-    // Fetch recent notifications
+        const settingsSnapshot = await get(settingsRef);
+        if (!settingsSnapshot.exists()) {
+          console.log("[Dashboard] Nessuna impostazione trovata, inizializzazione...");
+          const exampleSettings = {
+            temperature: { min: 18, max: 60 },
+            humidity: { min: 0, max: 100 },
+            light: { min: 50, max: 90 }
+          };
+          
+          await set(ref(database, 'settings'), exampleSettings);
+          console.log("[Dashboard] Impostazioni inizializzate con successo");
+        } else {
+          console.log("[Dashboard] Impostazioni esistenti trovate");
+        }
+      } catch (error) {
+        console.error("[Dashboard] Errore durante l'inizializzazione dei dati:", error);
+      }
+    };
+    
+    checkAndInitializeData();
+
+    // Sistema di notifiche avanzato
     const unsubscribeNotifications = onValue(notificationsRef, (snapshot) => {
+      console.log("[Dashboard] Ricevuti nuovi dati notifiche");
       const notifData = snapshot.val();
       if (notifData) {
         const notifArray = Object.entries(notifData)
-          .map(([key, value]) => ({ id: key, ...value }))
-          .sort((a, b) => b.timestamp - a.timestamp)
-          .slice(0, 5);
+          .map(([key, value]) => {
+            const timestamp = value.timestamp ? new Date(value.timestamp) : new Date();
+            const isValidDate = !isNaN(timestamp.getTime());
+            
+            if (!isValidDate) {
+              console.warn(`[Dashboard] Data non valida per la notifica ${key}:`, value.timestamp);
+            }
+            
+            return {
+              id: key,
+              ...value,
+              timestamp: isValidDate ? timestamp.getTime() : Date.now(),
+              priority: calculatePriority(value),
+              isNew: !lastNotificationRef.current || (isValidDate && timestamp.getTime() > lastNotificationRef.current),
+              isGraphRelated: value.type === 'graph_update'
+            };
+          })
+          .sort((a, b) => {
+            // Prima le notifiche nuove
+            if (a.isNew !== b.isNew) return a.isNew ? -1 : 1;
+            // Poi le notifiche relative al grafico
+            if (a.isGraphRelated !== b.isGraphRelated) return a.isGraphRelated ? -1 : 1;
+            // Infine per priorità e timestamp
+            if (a.priority !== b.priority) return b.priority - a.priority;
+            return b.timestamp - a.timestamp;
+          })
+          .slice(0, 3); // Mantieni solo le prime 3 notifiche
+
+        console.log("[Dashboard] Notifiche processate:", notifArray.length);
+
+        // Aggiorna il contatore delle notifiche nuove
+        const newNotifications = notifArray.filter(n => n.isNew).length;
+        setNotificationCount(prev => prev + newNotifications);
+        
+        // Aggiorna il timestamp dell'ultima notifica
+        if (notifArray.length > 0) {
+          lastNotificationRef.current = Math.max(...notifArray.map(n => n.timestamp));
+          console.log("[Dashboard] Ultimo timestamp notifica aggiornato:", new Date(lastNotificationRef.current).toLocaleString('it-IT'));
+        }
+
         setNotifications(notifArray);
+        
+        // Log delle notifiche importanti
+        const criticalNotifications = notifArray.filter(n => n.priority > 2);
+        if (criticalNotifications.length > 0) {
+          console.warn("[Dashboard] Notifiche critiche rilevate:", criticalNotifications);
+        }
+      } else {
+        console.log("[Dashboard] Nessuna notifica disponibile");
       }
     });
 
-    // Fetch chart data (last 10 readings)
-    const fetchChartData = async () => {
-      try {
-        const dataQuery = query(historyRef, orderByChild('timestamp'), limitToLast(20));
-        const snapshot = await get(dataQuery);
-        const data = snapshot.val();
+    // Gestione dati del grafico in tempo reale
+
+    const updateChartData = (newData) => {
+      setChartDataArray(prevData => {
+        // Aggiungi il nuovo dato all'array
+        const updatedData = [...prevData, newData];
+        // Mantieni solo gli ultimi 15 record
+        const slicedData = updatedData.slice(-15);
         
-        if (data) {
-          const dataArray = Object.values(data).sort((a, b) => a.timestamp - b.timestamp);
-          const timestamps = dataArray.map(entry => 
-            new Date(entry.timestamp).toLocaleTimeString('it-IT', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit'
-            })
-          );
-          
-          setChartData({
-            labels: timestamps,
-            datasets: [
-              {
-                label: 'Temperatura',
-                data: dataArray.map(entry => Number(entry.temperatura).toFixed(2)),
-                borderColor: '#ff4444',
-                tension: 0.3,
-                fill: false,
-                pointRadius: 3,
-                pointHoverRadius: 5
-              },
-              {
-                label: 'Umidità',
-                data: dataArray.map(entry => Number(entry.umidita).toFixed(2)),
-                borderColor: '#33b5e5',
-                tension: 0.3,
-                fill: false,
-                pointRadius: 3,
-                pointHoverRadius: 5
-              },
-              {
-                label: 'Luminosità',
-                data: dataArray.map(entry => Number(entry.luce).toFixed(2)),
-                borderColor: '#ffbb33',
-                tension: 0.3,
-                fill: false,
-                pointRadius: 3,
-                pointHoverRadius: 5
-              }
-            ]
-          });
+        // Aggiorna il grafico con i nuovi dati
+        const timestamps = slicedData.map(entry => 
+          new Date(entry.timestamp).toLocaleTimeString('it-IT', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          })
+        );
+
+        setChartData({
+          labels: timestamps,
+          datasets: [
+            {
+              label: 'Temperatura',
+              data: slicedData.map(entry => Number(entry.temperatura).toFixed(2)),
+              borderColor: '#ff4444',
+              tension: 0.3,
+              fill: false,
+              pointRadius: 3,
+              pointHoverRadius: 5
+            },
+            {
+              label: 'Umidità',
+              data: slicedData.map(entry => Number(entry.umidita).toFixed(2)),
+              borderColor: '#33b5e5',
+              tension: 0.3,
+              fill: false,
+              pointRadius: 3,
+              pointHoverRadius: 5
+            },
+            {
+              label: 'Luminosità',
+              data: slicedData.map(entry => Number(entry.luce).toFixed(2)),
+              borderColor: '#ffbb33',
+              tension: 0.3,
+              fill: false,
+              pointRadius: 3,
+              pointHoverRadius: 5
+            }
+          ]
+        });
+
+        return slicedData;
+      });
+    };
+
+    // Carica i dati iniziali e imposta il listener per gli aggiornamenti in tempo reale
+    const initializeChartData = async () => {
+      try {
+        // Carica gli ultimi 15 record
+        const initialDataQuery = query(historyRef, orderByChild('timestamp'), limitToLast(15));
+        const snapshot = await get(initialDataQuery);
+        const initialData = snapshot.val();
+
+        if (initialData) {
+          const dataArray = Object.values(initialData)
+            .sort((a, b) => a.timestamp - b.timestamp);
+          setChartDataArray(dataArray);
+          updateChartData(dataArray[dataArray.length - 1]);
         }
+
+        // Imposta il listener per gli aggiornamenti in tempo reale
+        onValue(sensorsRef, (snapshot) => {
+          const newData = snapshot.val();
+          if (newData) {
+            updateChartData({
+              ...newData,
+              timestamp: Date.now()
+            });
+          }
+        });
       } catch (error) {
-        console.error('Error fetching chart data:', error);
+        console.error('Errore durante l\'inizializzazione dei dati del grafico:', error);
       }
     };
 
-    fetchChartData();
-    const chartInterval = setInterval(fetchChartData, 300000); // Update every 5 minutes
+    initializeChartData();
 
-    // Fetch settings and sensor data as before
+    // Fetch settings and sensor data
     const unsubscribeSettings = onValue(settingsRef, (snapshot) => {
       const settings = snapshot.val();
-      console.log("[Dashboard] Settings data received from Firebase:", settings);
-      console.log("[Dashboard] Current sensorData state:", sensorData);
       if (settings) {
-        console.log("[Dashboard] Processing settings with values:", {
-          temperature: { min: settings.temperature?.min, max: settings.temperature?.max },
-          humidity: { min: settings.humidity?.min, max: settings.humidity?.max },
-          light: { min: settings.light?.min, max: settings.light?.max }
-        });
         setSensorData(prevData => ({
           temperature: {
             value: prevData?.temperature?.value || 25,
@@ -148,117 +262,55 @@ const Dashboard = () => {
             max: settings.light?.max || 90
           }
         }));
+      } else {
+        console.log("[Dashboard] Nessuna impostazione ricevuta");
       }
-      setIsLoading(false);
     });
 
-    // Subscribe to real-time sensor data and save to Firestore every 10 readings
+    // Subscribe to real-time sensor data
     const unsubscribeSensors = onValue(sensorsRef, async (snapshot) => {
-      const data = snapshot.val();
-      console.log("[Dashboard] Raw sensor data received:", data);
-      if (data) {
-        readingsCountRef.current += 1;
-        
-        // Log current state before update
-        console.log("[Dashboard] Current sensor state:", sensorData);
-        
-        const newSensorData = {
-          temperature: { 
-            ...(sensorData?.temperature || {}),
-            value: Number(data.temperatura || 25).toFixed(2),
-            min: sensorData?.temperature?.min || 18,
-            max: sensorData?.temperature?.max || 60
-          },
-          humidity: { 
-            ...(sensorData?.humidity || {}),
-            value: Number(data.umidita || 60).toFixed(2),
-            min: sensorData?.humidity?.min || 0,
-            max: sensorData?.humidity?.max || 100
-          },
-          light: { 
-            ...(sensorData?.light || {}),
-            value: Number(data.luce || 75).toFixed(2),
-            min: sensorData?.light?.min || 50,
-            max: sensorData?.light?.max || 90
-          }
-        };
-        
-        console.log("[Dashboard] New sensor data to be set:", newSensorData);
-        setSensorData(newSensorData);
+      try {
+        console.log("[Dashboard] Ricezione nuovi dati sensori");
+        const data = snapshot.val();
+        if (data) {
+          readingsCountRef.current += 1;
+          
+          const newSensorData = {
+            temperature: {
+              ...(sensorData?.temperature || {}),
+              value: Number(data.temperatura || 25).toFixed(2)
+            },
+            humidity: {
+              ...(sensorData?.humidity || {}),
+              value: Number(data.umidita || 60).toFixed(2)
+            },
+            light: {
+              ...(sensorData?.light || {}),
+              value: Number(data.luce || 75).toFixed(2)
+            }
+          };
 
-        // Update chart data with new reading
-        setChartData(prevChartData => {
-          if (!prevChartData) {
-            // Initialize chart data if it doesn't exist
-            return {
-              labels: [new Date().toLocaleTimeString('it-IT', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-              })],
-              datasets: [
-                {
-                  label: 'Temperatura',
-                  data: [Number(data.temperatura).toFixed(2)],
-                  borderColor: '#ff4444',
-                  tension: 0.3,
-                  fill: false,
-                  pointRadius: 3,
-                  pointHoverRadius: 5
-                },
-                {
-                  label: 'Umidità',
-                  data: [Number(data.umidita).toFixed(2)],
-                  borderColor: '#33b5e5',
-                  tension: 0.3,
-                  fill: false,
-                  pointRadius: 3,
-                  pointHoverRadius: 5
-                },
-                {
-                  label: 'Luminosità',
-                  data: [Number(data.luce).toFixed(2)],
-                  borderColor: '#ffbb33',
-                  tension: 0.3,
-                  fill: false,
-                  pointRadius: 3,
-                  pointHoverRadius: 5
-                }
-              ]
-            };
-          }
+          console.log("[Dashboard] Aggiornamento dati sensori:", newSensorData);
+          setSensorData(newSensorData);
+          setIsLoading(false);
 
-          // Keep only the last 20 readings
-          const labels = [...prevChartData.labels, new Date().toLocaleTimeString('it-IT', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          })].slice(-20);
-          const datasets = prevChartData.datasets.map((dataset, index) => ({
-            ...dataset,
-            data: [...dataset.data, 
-              Number(index === 0 ? data.temperatura : index === 1 ? data.umidita : data.luce).toFixed(2)
-            ].slice(-20)
-          }));
-
-          return { labels, datasets };
-        });
-        
-        // Save to Firestore every 10 readings
-        if (readingsCountRef.current >= 10) {
-          try {
-            const firestoreData = {
-              ...data,
-              timestamp: serverTimestamp()
-            };
-            console.log("[Dashboard] Saving to Firestore:", firestoreData);
-            await addDoc(collection(firestore, 'sensor_history'), firestoreData);
-            console.log("[Dashboard] Successfully saved to Firestore");
-            readingsCountRef.current = 0;
-          } catch (error) {
-            console.error('[Dashboard] Error saving to Firestore:', error);
+          // Save to Firestore every 10 readings
+          if (readingsCountRef.current >= 10) {
+            try {
+              await addDoc(collection(firestore, 'sensor_history'), {
+                ...data,
+                timestamp: serverTimestamp()
+              });
+              readingsCountRef.current = 0;
+            } catch (error) {
+              console.error('[Dashboard] Error saving to Firestore:', error);
+            }
           }
+        } else {
+          console.log("[Dashboard] Nessun dato ricevuto dai sensori");
         }
+      } catch (error) {
+        console.error("[Dashboard] Errore durante la lettura dei dati dei sensori:", error);
       }
     });
 
@@ -266,9 +318,35 @@ const Dashboard = () => {
       unsubscribeSettings();
       unsubscribeSensors();
       unsubscribeNotifications();
-      clearInterval(chartInterval);
+
     };
   }, []);
+
+  const calculatePriority = (notification) => {
+    if (!notification) return 0;
+    // Calcola la priorità basata su tipo, valori e relazione con il grafico
+    let priority = 0;
+    
+    // Priorità base per tipo di notifica
+    switch (notification.type) {
+      case 'danger': priority = 3; break;
+      case 'warning': priority = 2; break;
+      case 'success': priority = 1; break;
+      default: priority = 0;
+    }
+    
+    // Aumenta la priorità se la notifica è relativa al grafico
+    if (notification.message && (
+      notification.message.includes('temperatura') ||
+      notification.message.includes('umidità') ||
+      notification.message.includes('luminosità')
+    )) {
+      notification.type = 'graph_update';
+      priority += 1;
+    }
+    
+    return priority;
+  };
 
   const getStatus = (value, min, max) => {
     if (value < min || value > max) return 'danger';
@@ -294,10 +372,6 @@ const Dashboard = () => {
       default: return '⚪';
     }
   };
-
-  if (isLoading || !sensorData) {
-    return <div className="dashboard"><h2>Caricamento...</h2></div>;
-  }
 
   const chartOptions = {
     responsive: true,
@@ -364,6 +438,10 @@ const Dashboard = () => {
     }
   };
 
+  if (isLoading || !sensorData) {
+    return <div className="dashboard"><h2>Caricamento...</h2></div>;
+  }
+
   return (
     <div className="dashboard">
       <div className="dashboard-header">
@@ -374,23 +452,24 @@ const Dashboard = () => {
       <div className="progress-section">
         <h3 className="data-title">Stato dei Sensori</h3>
         {Object.entries(sensorData).map(([sensor, data]) => (
-            <div key={sensor} className="progress-row">
+          <div key={sensor} className="progress-row">
             <div className="progress-label">
-                {getSensorLabel(sensor)}
-                <span className="status-indicator">{getStatusEmoji(getStatus(data.value, data.min, data.max))}</span>
+              {getSensorLabel(sensor)}
+              <span className="status-indicator">{getStatusEmoji(getStatus(data.value, data.min, data.max))}</span>
             </div>
             <ProgressBar
-                value={data.value}
-                min={data.min}
-                max={data.max}
-                status={getStatus(data.value, data.min, data.max)}
+              value={data.value}
+              min={data.min}
+              max={data.max}
+              status={getStatus(data.value, data.min, data.max)}
             />
             <div className="progress-value">
-                {data.value}{sensor === 'temperature' ? '°C' : '%'}
+              {data.value}{sensor === 'temperature' ? '°C' : '%'}
             </div>
-            </div>
+          </div>
         ))}
-        </div>
+      </div>
+
       {chartData && (
         <div className="quick-chart">
           <h3>Ultimi dati ricevuti</h3>
@@ -405,11 +484,29 @@ const Dashboard = () => {
         {notifications.length > 0 ? (
           <div className="notifications-list">
             {notifications.map((notif) => (
-              <div key={notif.id} className={`notification-item ${notif.type}`}>
+              <div 
+                key={notif.id} 
+                className={`notification-item ${notif.type} ${notif.isNew ? 'new' : ''}`}
+                onClick={() => {
+                  if (notif.isNew) {
+                    setNotificationCount(prev => Math.max(0, prev - 1));
+                    const updatedNotifications = notifications.map(n => 
+                      n.id === notif.id ? { ...n, isNew: false } : n
+                    );
+                    setNotifications(updatedNotifications);
+                  }
+                }}
+              >
                 <span className="notification-time">
-                  {new Date(notif.timestamp).toLocaleTimeString()}
+                  {new Date(notif.timestamp).toLocaleString('it-IT', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    day: '2-digit',
+                    month: '2-digit'
+                  })}
                 </span>
                 <span className="notification-message">{notif.message}</span>
+                {notif.isNew && <span className="notification-badge">Nuovo</span>}
               </div>
             ))}
           </div>

@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "serra-automatica-itis"
-  }
+    "default": "serra-domotica-bonsi",
+    "serra-domotica-bonsi": "serra-domotica-bonsi"
+  },
+  "targets": {},
+  "etags": {}
 }

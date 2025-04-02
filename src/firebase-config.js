@@ -5,14 +5,14 @@ import { getAnalytics } from "firebase/analytics"; // Aggiunto
 
 // Configurazione di Firebase
 const firebaseConfig = {
-    apiKey: "AIzaSyCzLzAjJADirLhZ53olhr-IJsR4IiRyZAU",
-    authDomain: "serra-automatica-itis.firebaseapp.com",
-    databaseURL: "https://serra-automatica-itis-default-rtdb.firebaseio.com/",
-    projectId: "serra-automatica-itis",
-    storageBucket: "serra-automatica-itis.firebasestorage.app", // ⚠️ Corretto
-    messagingSenderId: "470825100170",
-    appId: "1:470825100170:web:3cf77fea00b5e2a7765e73",
-    measurementId: "G-HTZKRQWG6J"
+    apiKey: "AIzaSyBfW8GbRcfUPStmxqx9M_CVI1_SKBkXPBY",
+    authDomain: "serra-domotica-bonsi.firebaseapp.com",
+    databaseURL: "https://serra-domotica-bonsi-default-rtdb.firebaseio.com",
+    projectId: "serra-domotica-bonsi",
+    storageBucket: "serra-domotica-bonsi.firebasestorage.app",
+    messagingSenderId: "161102213524",
+    appId: "1:161102213524:web:cf62c3cff64933918d9f81",
+    measurementId: "G-FEVJEEGVNE"
 };
 
 // Inizializza Firebase
